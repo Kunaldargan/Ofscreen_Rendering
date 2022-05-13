@@ -1,0 +1,50 @@
+#version 330 core
+
+// Interpolated values from the vertex shaders
+in vec2 UV;
+
+//Texture to be sampled
+uniform sampler2D myTextureSampler;
+
+const int samples = 9; // Number of samples we want to take (this number is actually squared)
+float weight[samples]; // This array will store weights to multiply our samples by
+float mean = samples / 2; // Part of the gaussian equation, we want it in the middle of our sample pool
+float standardDeviation = samples / 4; // The standard deviation. higher numbers will be more blurred, lower will be more accurate. Can't be less than 1
+float sdsqrd = standardDeviation * standardDeviation * 2; // A precalculated value for the equation.
+
+// Ouput data
+out vec3 color;
+
+void main(void)
+{
+
+	// Generate an array of weights
+	// This is the gaussian distribution formula.
+	// The area under the curve is defined as being 1.
+	// If we multiply a set pixels by these weights and add them together, we should end up with the same total color as we started with.
+	// NOTE: In a more optimized solution, we would calculate these values once on the cpu, and send them to the gpu in a uniform buffer.
+	for(int x = 0; x < samples; x++)
+	{
+		float exponent = -pow(x - mean, 2) / sdsqrd;
+		weight[x] = pow(2.718, exponent) / pow(3.141 * sdsqrd, .5);
+	}
+
+	// This function allows us to get the dimensions of a texture, (which in this case is the screen)
+	vec2 screenSize = textureSize(myTextureSampler, 0);	
+
+	// Loop over all pixels within a square
+	// NOTE: An optmized solution would perform this operation as two passes, bluring horizontally, then vertically.
+	// Basically, instead of sampling an NxN square each time, you would only need to do two Nx1 squares.
+	// Conveniently, if you do the math, that method ends up giving the exact same result!
+	for(int i = 0; i < samples; i ++)
+	{
+		for(int j = 0; j < samples; j ++)
+		{
+			// Each pixel is weighted using width and height weights multiplied. This makes pixels affect eachother in a circlular shape.
+			color += texture(myTextureSampler, UV + vec2(i / screenSize.x, j / screenSize.y)).rgb * weight[i] * weight[j]; 
+		}
+	}
+
+	// Once we have that coordinate, we can read from the texture at that location and output it to the screen.
+	//gl_FragColor = color;
+}
