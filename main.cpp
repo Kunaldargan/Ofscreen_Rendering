@@ -25,7 +25,7 @@ using namespace std;
 #define width       1024 
 #define height      768
 
-int key=4;
+int key=3;
 
 void apply_color(GLuint vertexbuffer, GLuint colorbuffer){
 
@@ -148,6 +148,33 @@ void checkGLError()
     }  
 }
 
+void render_to_defaultFBO(Texture &tex,GLuint programID_passthrough, GLuint quadbuffer, GLuint TextureIDPass){
+
+	// Bind the output texture from the previous shader program.
+	tex.bind(0);
+	
+	// Use shader
+	glUseProgram(programID_passthrough);
+
+	// Set our "renderedTexture" sampler to use Texture Unit 0
+	glUniform1i(TextureIDPass, 0);
+
+	// 1rst attribute buffer : vertices
+	glEnableVertexAttribArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, quadbuffer);
+	glVertexAttribPointer(
+		0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+		3,                  // size
+		GL_FLOAT,           // type
+		GL_FALSE,           // normalized?
+		0,                  // stride
+		(void*)0            // array buffer offset
+	);
+
+	// Draw the triangles !
+	glDrawArrays(GL_TRIANGLES, 0, 6); // 2*3 indices starting at 0 -> 2 triangles
+	glDisableVertexAttribArray(0);
+}
 int main( void )
 {
 	// Initialise GLFW
@@ -188,7 +215,7 @@ int main( void )
 
 	// Dark blue background
 	glClearColor(0.0f, 0.0f, 0.4f, 0.0f);
-	
+
 	// Enable depth test
 	glEnable(GL_DEPTH_TEST);
 	// Accept fragment if it closer to the camera than the former one
@@ -211,8 +238,8 @@ int main( void )
 	GLuint programID_passthrough = LoadShaders( "Passthrough.vertexshader", "TextureFragmentShader.fragmentshader" );
 
     // Create and compile our GLSL program from the shaders
-	GLuint programID_Texture_Blur = LoadShaders( "TextureTransformVertexShader.vertexshader", "TextureGaussianBlurShader.fragmentshader" );
-
+	GLuint programID_Texture_Blur = LoadShaders( "Passthrough.vertexshader", "TextureGaussianBlurShader.fragmentshader" );
+	
 	// Projection matrix : 45� Field of View, 4:3 ratio, display range : 0.1 unit <-> 100 units
 	glm::mat4 Projection = glm::perspective(glm::radians(45.0f), 4.0f / 3.0f, 0.1f, 100.0f);
 	// Camera matrix
@@ -397,6 +424,42 @@ int main( void )
 		 1.0f,  1.0f, 0.0f,
 	};
 
+	/////////////////////////////////////////////////////////////////////////////
+	// TEXTURE INITIALIZATION
+	//
+	/////////////////////////////////////////////////////////////////////////////
+
+	//Intialize texture object
+    Texture texture[4];
+    
+    const char imagePath[] = "/home/kunal/Desktop/Haptics/opengl_resources/opengl-tutorials/tutorial05_textured_cube/uvtemplate.tga";
+    bool loaded = texture[0].loadTexture(imagePath, true);
+    
+    if (!loaded){
+        cout << "error in loading texture :" << imagePath <<endl;
+        return -1;
+    }
+
+	// For saving first pass results
+    texture[1].loadEmptyFrame();
+
+	const char imagePath1[] = "/home/kunal/Desktop/Haptics/opengl_resources/opengl-tutorials/tutorial05_textured_cube/uvtemplate.bmp";
+    bool loaded1 = texture[2].loadTexture(imagePath1, true);
+    
+    if (!loaded1){
+        cout << "error in loading texture :" << imagePath1 <<endl;
+        return -1;
+    }
+	
+	// For saving Blur results
+	texture[3].loadEmptyFrame();
+
+
+	/////////////////////////////////////////////////////////////////////////////
+	// ARRAY Buffer INITIALIZATION
+	// FRAME BUFFER INITIALIZATION
+	/////////////////////////////////////////////////////////////////////////////
+
 	GLuint vertexbuffer;
 	glGenBuffers(1, &vertexbuffer);
 	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
@@ -422,53 +485,12 @@ int main( void )
 	glBindBuffer(GL_ARRAY_BUFFER, quadbuffer);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(g_quad_vertex_buffer_data), g_quad_vertex_buffer_data, GL_STATIC_DRAW);
 
-
+	// Define a FBO
     GLuint frameBuffer;
 	glGenFramebuffers(1, &frameBuffer);
 	glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
 
-    //Intialize texture object
-    Texture texture[3];
-    
-    const char imagePath[] = "/home/kunal/Desktop/Haptics/opengl_resources/opengl-tutorials/tutorial05_textured_cube/uvtemplate.tga";
-    bool loaded = texture[0].loadTexture(imagePath, true);
-    
-    if (!loaded){
-        cout << "error in loading texture :" << imagePath <<endl;
-        return -1;
-    }
-
-    texture[1].loadEmptyFrame();
-
-    const char imagePath1[] = "/home/kunal/Desktop/Haptics/opengl_resources/opengl-tutorials/tutorial05_textured_cube/uvtemplate.bmp";
-    bool loaded1 = texture[2].loadTexture(imagePath1, true);
-    
-    if (!loaded1){
-        cout << "error in loading texture :" << imagePath1 <<endl;
-        return -1;
-    }
-
-
-	// Get a handle for our "MVP" uniform
-	GLuint MatrixID = glGetUniformLocation(programID, "MVP");
-    
-    // Get a handle for our "MVP" uniform
-	GLuint MatrixIDTexture = glGetUniformLocation(programID_Texture, "MVP");
-
-	// Get a handle for our "myTextureSampler" uniform
-	GLuint TextureID  = glGetUniformLocation(programID_Texture, "myTextureSampler");
-
-    // Get a handle for our "MVP" uniform
-	GLuint MatrixIDTextureBlur = glGetUniformLocation(programID_Texture_Blur, "MVP");
-
-	// Get a handle for our "myTextureSampler" uniform
-	GLuint TextureIDBlur  = glGetUniformLocation(programID_Texture_Blur, "myTextureSampler");
-
-
-	GLuint TextureIDPass = glGetUniformLocation(programID_passthrough, "myTextureSampler");
-    
-
-    glFramebufferTexture(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,texture[1].mTexture,0);
+	glFramebufferTexture(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,texture[1].mTexture,0);
     /*
         Name
 
@@ -495,17 +517,52 @@ int main( void )
 
             Specifies the mipmap level of the texture object to attach.
     */
+	
 
-    // Set the list of draw buffers.
+	
+	// Set the list of draw buffers.
     GLenum DrawBuffers[1] = {GL_COLOR_ATTACHMENT0};
     glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
 
     // Always check that our framebuffer is ok
     if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-    return false;
+    	return false;
+
+	// Define a FBO : to blur
+	GLuint frameBufferBlur;
+	glGenFramebuffers(1, &frameBufferBlur);
+	glBindFramebuffer(GL_FRAMEBUFFER, frameBufferBlur);
+
+	glFramebufferTexture(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,texture[3].mTexture,0);
+    // Set the list of draw buffers.
+    GLenum DrawBuffersBlur[1] = {GL_COLOR_ATTACHMENT0};
+    glDrawBuffers(1, DrawBuffersBlur); // "1" is the size of DrawBuffers
+
+    // Always check that our framebuffer is ok
+    if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+    	return false;
 
 
+	// Get a handle for our "MVP" uniform
+	GLuint MatrixID = glGetUniformLocation(programID, "MVP");
+    
+    // Get a handle for our "MVP" uniform
+	GLuint MatrixIDTexture = glGetUniformLocation(programID_Texture, "MVP");
+
+	// Get a handle for our "myTextureSampler" uniform
+	GLuint TextureID  = glGetUniformLocation(programID_Texture, "myTextureSampler");
+
+    // Get a handle for our "MVP" uniform
+	// GLuint MatrixIDTextureBlur = glGetUniformLocation(programID_Texture_Blur, "MVP");
+
+	// Get a handle for our "myTextureSampler" uniform
+	GLuint TextureIDBlur  = glGetUniformLocation(programID_Texture_Blur, "myTextureSampler");
+
+
+	GLuint TextureIDPass = glGetUniformLocation(programID_passthrough, "myTextureSampler");
+    
     glfwSetInputMode(window, GLFW_STICKY_KEYS, 1);
+
 
 	while( glfwGetKey(window, GLFW_KEY_ESCAPE ) != GLFW_PRESS &&
 		   glfwWindowShouldClose(window) == 0 ){
@@ -625,8 +682,10 @@ int main( void )
 
         }
 
-        if (glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS || key==4){
-            key=4;
+        if (glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS || key == 4 || key == 5 ){
+
+			if (glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS)
+				key=4;
 
             // Render to our framebuffer
             glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
@@ -651,60 +710,115 @@ int main( void )
             apply_texture(vertexbuffer, uvbuffer);
 		    glDrawArrays(GL_TRIANGLES, 0, 12*3); // 12*3 indices starting at 0 -> 12 triangles
             
-
-
-			///// 2nd pass ////////////////////////////////////////
-
-			// Use shader
-            glUseProgram(programID_Texture_Blur);
-
-			// Send our transformation to the currently bound shader, 
-            // in the "MVP" uniform
-            glUniformMatrix4fv(MatrixIDTextureBlur, 1, GL_FALSE, &MVP[0][0]);
-
-            // Set our "myTextureSampler" sampler to use Texture Unit 0
-            glUniform1i(TextureIDBlur, 0);
-
-            apply_texture(vertexbuffer, uvbuffer);
-		    glDrawArrays(GL_TRIANGLES, 0, 12*3); // 12*3 indices starting at 0 -> 12 triangles
-
 			// take screenshot :
-			FBO_2_PPM_file();
+			//FBO_2_PPM_file();
 
-			// Render to the screen
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            // Render on the whole framebuffer, complete from the lower left corner to the upper right
-            glViewport(0,0,width, height);
+			if (glfwGetKey(window, GLFW_KEY_5) == GLFW_PRESS || key==5){
+            	key=5;
+				
+				// Render to our framebuffer
+            	glBindFramebuffer(GL_FRAMEBUFFER, frameBufferBlur);
+				glViewport(0,0,width, height); // Render on the whole framebuffer, complete from the lower left corner to the upper right
 
-			// Clear the screen
-			glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+				// Clear the screen
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+				///// 2nd pass ////////////////////////////////////////
+				
+				// Bind the output texture from the previous shader program.
+            	texture[1].bind(0);
 
-			// Use shader
-            glUseProgram(programID_passthrough);
+				// Use shader
+				glUseProgram(programID_Texture_Blur);
 
-			// Bind the output texture from the previous shader program.
-            texture[1].bind(0);
+				
+				// Set our "myTextureSampler" sampler to use Texture Unit 0
+				glUniform1i(TextureIDBlur, 0);
 
-			// Set our "renderedTexture" sampler to use Texture Unit 0
-			glUniform1i(TextureIDPass, 0);
+				// 1rst attribute buffer : vertices
+				glEnableVertexAttribArray(0);
+				glBindBuffer(GL_ARRAY_BUFFER, quadbuffer);
+				glVertexAttribPointer(
+					0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+					3,                  // size
+					GL_FLOAT,           // type
+					GL_FALSE,           // normalized?
+					0,                  // stride
+					(void*)0            // array buffer offset
+				);
 
-			// 1rst attribute buffer : vertices
-			glEnableVertexAttribArray(0);
-			glBindBuffer(GL_ARRAY_BUFFER, quadbuffer);
-			glVertexAttribPointer(
-				0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
-				3,                  // size
-				GL_FLOAT,           // type
-				GL_FALSE,           // normalized?
-				0,                  // stride
-				(void*)0            // array buffer offset
-			);
+				// Draw the triangles !
+				glDrawArrays(GL_TRIANGLES, 0, 6); // 2*3 indices starting at 0 -> 2 triangles
 
-			// Draw the triangles !
-			glDrawArrays(GL_TRIANGLES, 0, 6); // 2*3 indices starting at 0 -> 2 triangles
-			glDisableVertexAttribArray(0);
+				
+				// Render to our framebuffer
+            	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+				glViewport(0,0,width, height); // Render on the whole framebuffer, complete from the lower left corner to the upper right
 
+				// Clear the screen
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+				// Bind the output texture from the previous shader program.
+				texture[3].bind(0);
+				
+				// Use shader
+				glUseProgram(programID_passthrough);
+
+				// Set our "renderedTexture" sampler to use Texture Unit 0
+				glUniform1i(TextureIDPass, 0);
+
+				// 1rst attribute buffer : vertices
+				glEnableVertexAttribArray(0);
+				glBindBuffer(GL_ARRAY_BUFFER, quadbuffer);
+				glVertexAttribPointer(
+					0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+					3,                  // size
+					GL_FLOAT,           // type
+					GL_FALSE,           // normalized?
+					0,                  // stride
+					(void*)0            // array buffer offset
+				);
+
+				// Draw the triangles !
+				glDrawArrays(GL_TRIANGLES, 0, 6); // 2*3 indices starting at 0 -> 2 triangles
+				// take screenshot :
+				FBO_2_PPM_file();
+
+				glDisableVertexAttribArray(0);
+
+			} 
+			else{
+				// Render to the screen
+				glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	
+				// Clear the screen
+				glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+				// Bind the output texture from the previous shader program.
+				texture[1].bind(0);
+				
+				// Use shader
+				glUseProgram(programID_passthrough);
+
+				// Set our "renderedTexture" sampler to use Texture Unit 0
+				glUniform1i(TextureIDPass, 0);
+
+				// 1rst attribute buffer : vertices
+				glEnableVertexAttribArray(0);
+				glBindBuffer(GL_ARRAY_BUFFER, quadbuffer);
+				glVertexAttribPointer(
+					0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+					3,                  // size
+					GL_FLOAT,           // type
+					GL_FALSE,           // normalized?
+					0,                  // stride
+					(void*)0            // array buffer offset
+				);
+
+				// Draw the triangles !
+				glDrawArrays(GL_TRIANGLES, 0, 6); // 2*3 indices starting at 0 -> 2 triangles
+				glDisableVertexAttribArray(0);
+			}
         }
 
 		glDisableVertexAttribArray(0);
